@@ -5,7 +5,7 @@ from econml.bootstrap import BootstrapEstimator
 from econml.inference import BootstrapInference
 from econml.dml import LinearDMLCateEstimator
 from econml.two_stage_least_squares import NonparametricTwoStageLeastSquares
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.preprocessing import PolynomialFeatures
 import numpy as np
 import unittest
@@ -265,3 +265,18 @@ class TestBootstrap(unittest.TestCase):
 
         # TODO: test that the estimated effect is usually within the bounds
         #       and that the true effect is also usually within the bounds
+
+    def test_stratify(self):
+        """Test that we can properly stratify by treatment"""
+        T = [1, 0, 1, 2, 0, 2]
+        Y = [1, 2, 3, 4, 5, 6]
+        X = np.array([1, 1, 2, 2, 1, 2]).reshape(-1, 1)
+        est = LinearDMLCateEstimator(model_y=LinearRegression(), model_t=LogisticRegression(), discrete_treatment=True)
+        est.fit(Y, T, inference='bootstrap')
+        est.const_marginal_effect_interval()
+
+        est.fit(Y, T, X=X, inference='bootstrap')
+        est.const_marginal_effect_interval(X)
+
+        est.fit(Y, np.asarray(T).reshape(-1, 1), inference='bootstrap')  # test stratifying 2D treatment
+        est.const_marginal_effect_interval()
