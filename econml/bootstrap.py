@@ -44,30 +44,25 @@ class BootstrapEstimator:
         In case a method ending in '_interval' exists on the wrapped object, whether
         that should be preferred (meaning this wrapper will compute the mean of it).
         This option only affects behavior if `compute_means` is set to ``True``.
-
-    stratify_treatment: bool, default False
-        Whether to stratify by treatment when calling fit; this will ensure that each stratum of treatment
-        is subsampled independently, so that each resample will have the same number of entries with each
-        treatment as the original sample did.
     """
 
     def __init__(self, wrapped, n_bootstrap_samples=1000, n_jobs=None,
-                 compute_means=True, prefer_wrapped=False, stratify_treatment=False):
+                 compute_means=True, prefer_wrapped=False):
         self._instances = [clone(wrapped, safe=False) for _ in range(n_bootstrap_samples)]
         self._n_bootstrap_samples = n_bootstrap_samples
         self._n_jobs = n_jobs
         self._compute_means = compute_means
         self._prefer_wrapped = prefer_wrapped
-        self._stratify_treatment = stratify_treatment
 
     # TODO: Add a __dir__ implementation?
 
-    def _stratified_indices(self, Y, T, *args, **kwargs):
-        assert 1 <= np.ndim(T) <= 2
-        unique = np.unique(T, axis=0)
+    @staticmethod
+    def __stratified_indices(arr):
+        assert 1 <= np.ndim(arr) <= 2
+        unique = np.unique(arr, axis=0)
         indices = []
         for el in unique:
-            ind, = np.where(np.all(T == el, axis=1) if np.ndim(T) == 2 else T == el)
+            ind, = np.where(np.all(arr == el, axis=1) if np.ndim(arr) == 2 else arr == el)
             indices.append(ind)
         return indices
 
@@ -77,10 +72,14 @@ class BootstrapEstimator:
 
         The full signature of this method is the same as that of the wrapped object's `fit` method.
         """
+        from .cate_estimator import BaseCateEstimator  # need to nest this here to avoid circular import
 
-        if self._stratify_treatment:
-            index_chunks = self._stratified_indices(*args, **named_args)
-        else:
+        index_chunks = None
+        if isinstance(self._instances[0], BaseCateEstimator):
+            index_chunks = self._instances[0]._strata(*args, **named_args)
+            if index_chunks is not None:
+                index_chunks = self.__stratified_indices(index_chunks)
+        if index_chunks is None:
             n_samples = np.shape(args[0] if args else named_args[(*named_args,)[0]])[0]
             index_chunks = [np.arange(n_samples)]  # one chunk with all indices
 
