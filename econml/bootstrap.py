@@ -154,6 +154,10 @@ class BootstrapEstimator:
                     return call_with_bounds(can_call, lower, upper)
                 return call
 
+        def get_inference():
+            raise NotImplementedError("The {0} method is not yet supported by bootstrap inference; "
+                                      "consider using a different inference method if available.".format(name))
+
         caught = None
         if self._compute_means and self._prefer_wrapped:
             try:
@@ -162,11 +166,18 @@ class BootstrapEstimator:
                 caught = err
             if name.endswith("_interval"):
                 return get_interval()
+            elif name.endswith("_inference"):
+                return get_inference()
         else:
             # try to get interval first if appropriate, since we don't prefer a wrapped method with this name
             if name.endswith("_interval"):
                 try:
                     return get_interval()
+                except AttributeError as err:
+                    caught = err
+            if name.endswith("_inference"):
+                try:
+                    return get_inference()
                 except AttributeError as err:
                     caught = err
             if self._compute_means:
