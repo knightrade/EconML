@@ -176,8 +176,31 @@ class BootstrapEstimator:
                 return call
 
         def get_inference():
-            raise NotImplementedError("The {0} method is not yet supported by bootstrap inference; "
-                                      "consider using a different inference method if available.".format(name))
+            # can't import from econml.inference at top level without creating mutual dependencies
+            from .inference import InferenceResults
+            # TODO: consider treating percentile bootstrap differently since we can work directly with
+            #       the empirical distribution
+            prefix = name[: - len("_inference")]
+            if prefix in ['const_marginal_effect', 'effect']:
+                inf_type = 'effect'
+            elif prefix == 'coef_':
+                inf_type = 'coefficient'
+            elif prefix == 'intercept_':
+                inf_type = 'intercept'
+            else:
+                raise AttributeError("Unsupported inference: " + name)
+
+            def get_inference():
+                pred = getattr(self._wrapped, prefix)
+                stderr = getattr(self, prefix + '_std')
+                d_t = self._wrapped._d_t[0] if self._wrapped._d_t else 1
+                d_t = 1 if prefix == 'effect' else d_t
+                d_y = self._wrapped._d_y[0] if self._wrapped._d_y else 1
+                return InferenceResults(d_t=d_t, d_y=d_y, pred=pred,
+                                        pred_stderr=stderr, inf_type=inf_type,
+                                        pred_dist=None, fname_transformer=None)
+
+            return get_inference
 
         caught = None
         m = None
@@ -200,11 +223,6 @@ class BootstrapEstimator:
             if m is not None:
                 try:
                     return m()
-                except AttributeError as err:
-                    caught = err
-            if name.endswith("_inference"):
-                try:
-                    return get_inference()
                 except AttributeError as err:
                     caught = err
             if self._compute_means:

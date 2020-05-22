@@ -62,16 +62,50 @@ class BootstrapInference(Inference):
                                  bootstrap_type=self._bootstrap_type)
         est.fit(*args, **kwargs)
         self._est = est
+        self._d_t = estimator._d_t
+        self._d_y = estimator._d_y
+        self.d_t = self._d_t[0] if self._d_t else 1
+        self.d_y = self._d_y[0] if self._d_y else 1
 
     def __getattr__(self, name):
         if name.startswith('__'):
             raise AttributeError()
 
         m = getattr(self._est, name)
+        if name.endswith('_interval'):  # convert alpha to lower/upper
+            def wrapped(*args, alpha=0.1, **kwargs):
+                return m(*args, lower=100 * alpha / 2, upper=100 * (1 - alpha / 2), **kwargs)
+            return wrapped
+        else:
+            return m
 
-        def wrapped(*args, alpha=0.1, **kwargs):
-            return m(*args, lower=100 * alpha / 2, upper=100 * (1 - alpha / 2), **kwargs)
-        return wrapped
+    def summary(self, alpha=0.1, value=0, decimals=3, feat_name=None):
+        smry = Summary()
+        try:
+            coef_table = self.coef__inference().summary_frame(alpha=alpha,
+                                                              value=value, decimals=decimals, feat_name=feat_name)
+            coef_array = coef_table.values
+            coef_headers = [i + '\n' +
+                            j for (i, j) in coef_table.columns] if self.d_t > 1 else coef_table.columns.tolist()
+            coef_stubs = [i + ' | ' + j for (i, j) in coef_table.index] if self.d_y > 1 else coef_table.index.tolist()
+            coef_title = 'Coefficient Results'
+            smry.add_table(coef_array, coef_headers, coef_stubs, coef_title)
+        except Exception as e:
+            print("Coefficient Results: ", str(e))
+        try:
+            intercept_table = self.intercept__inference().summary_frame(alpha=alpha,
+                                                                        value=value, decimals=decimals, feat_name=None)
+            intercept_array = intercept_table.values
+            intercept_headers = [i + '\n' + j for (i, j)
+                                 in intercept_table.columns] if self.d_t > 1 else intercept_table.columns.tolist()
+            intercept_stubs = [i + ' | ' + j for (i, j)
+                               in intercept_table.index] if self.d_y > 1 else intercept_table.index.tolist()
+            intercept_title = 'Intercept Results'
+            smry.add_table(intercept_array, intercept_headers, intercept_stubs, intercept_title)
+        except Exception as e:
+            print("Intercept Results: ", str(e))
+        if len(smry.tables) > 0:
+            return smry
 
 
 class GenericModelFinalInference(Inference):

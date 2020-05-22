@@ -295,15 +295,3 @@ class TestBootstrap(unittest.TestCase):
         inference = BootstrapInference(n_bootstrap_samples=20)
         est.fit(Y, T, Z, X=X, inference=inference)
         est.const_marginal_effect_interval(X)
-
-    def test_inference_throws_helpful_error(self):
-        """Test that we see that inference methods are not yet implemented"""
-        T = np.random.normal(size=(1000, 1))
-        Y = T + np.random.normal(size=(1000, 1))
-
-        opts = BootstrapInference(5, 2)
-
-        est = LinearDMLCateEstimator().fit(Y, T, inference=opts)
-
-        with self.assertRaises(NotImplementedError):
-            eff = est.const_marginal_effect_inference()
