@@ -5,6 +5,7 @@
 import numpy as np
 from joblib import Parallel, delayed
 from sklearn.base import clone
+from scipy.stats import norm
 
 
 class BootstrapEstimator:
@@ -44,15 +45,22 @@ class BootstrapEstimator:
         In case a method ending in '_interval' exists on the wrapped object, whether
         that should be preferred (meaning this wrapper will compute the mean of it).
         This option only affects behavior if `compute_means` is set to ``True``.
+
+    bootstrap_type: 'percentile' or 'standard', default 'percentile'
+        Bootstrap method used to compute results.  'percentile' will result in using the empiracal CDF of
+        the replicated copmutations of the statistics.   'standard' will instead compute a pivot interval
+        assuming the replicates are normally distributed.
     """
 
-    def __init__(self, wrapped, n_bootstrap_samples=1000, n_jobs=None,
-                 compute_means=True, prefer_wrapped=False):
+    def __init__(self, wrapped, n_bootstrap_samples=1000, n_jobs=None, compute_means=True, prefer_wrapped=False,
+                 bootstrap_type='percentile'):
         self._instances = [clone(wrapped, safe=False) for _ in range(n_bootstrap_samples)]
         self._n_bootstrap_samples = n_bootstrap_samples
         self._n_jobs = n_jobs
         self._compute_means = compute_means
         self._prefer_wrapped = prefer_wrapped
+        self._boostrap_type = bootstrap_type
+        self._wrapped = wrapped
 
     # TODO: Add a __dir__ implementation?
 
@@ -121,7 +129,7 @@ class BootstrapEstimator:
         def proxy(make_call, name, summary):
             def summarize_with(f):
                 return summary(np.array(Parallel(n_jobs=self._n_jobs, prefer='threads', verbose=3)(
-                    (f, (obj, name), {}) for obj in self._instances)))
+                    (f, (obj, name), {}) for obj in self._instances)), f(self._wrapped, name))
             if make_call:
                 def call(*args, **kwargs):
                     return summarize_with(lambda obj, name: getattr(obj, name)(*args, **kwargs))
@@ -131,7 +139,12 @@ class BootstrapEstimator:
 
         def get_mean():
             # for attributes that exist on the wrapped object, just compute the mean of the wrapped calls
-            return proxy(callable(getattr(self._instances[0], name)), name, lambda arr: np.mean(arr, axis=0))
+            return proxy(callable(getattr(self._instances[0], name)), name, lambda arr, _: np.mean(arr, axis=0))
+
+        def get_std():
+            prefix = name[: - len('_std')]
+            return proxy(callable(getattr(self._instances[0], prefix)), prefix,
+                         lambda arr, _: np.std(arr, axis=0))
 
         def get_interval():
             # if the attribute exists on the wrapped object once we remove the suffix,
@@ -139,8 +152,16 @@ class BootstrapEstimator:
             prefix = name[: - len("_interval")]
 
             def call_with_bounds(can_call, lower, upper):
-                return proxy(can_call, prefix,
-                             lambda arr: (np.percentile(arr, lower, axis=0), np.percentile(arr, upper, axis=0)))
+                def percentile_bootstrap(arr, _):
+                    return np.percentile(arr, lower, axis=0), np.percentile(arr, upper, axis=0)
+
+                def pivot_bootstrap(arr, est):
+                    std = np.std(arr, axis=0)
+                    return est - norm.ppf(upper / 100) * std, est - norm.ppf(lower / 100) * std
+                # TODO: studentized bootstrap? would be more accurate in most cases but can we avoid
+                #       second level bootstrap which would be prohibitive computationally
+                fn = {'percentile': percentile_bootstrap, 'standard': pivot_bootstrap}[self._boostrap_type]
+                return proxy(can_call, prefix, fn)
 
             can_call = callable(getattr(self._instances[0], prefix))
             if can_call:
@@ -159,20 +180,26 @@ class BootstrapEstimator:
                                       "consider using a different inference method if available.".format(name))
 
         caught = None
+        m = None
+        if name.endswith("_interval"):
+            m = get_interval
+        elif name.endswith("_std"):
+            m = get_std
+        elif name.endswith("_inference"):
+            m = get_inference
         if self._compute_means and self._prefer_wrapped:
             try:
                 return get_mean()
             except AttributeError as err:
                 caught = err
-            if name.endswith("_interval"):
-                return get_interval()
-            elif name.endswith("_inference"):
-                return get_inference()
+            if m is not None:
+                m()
         else:
-            # try to get interval first if appropriate, since we don't prefer a wrapped method with this name
-            if name.endswith("_interval"):
+            # try to get interval/std first if appropriate,
+            # since we don't prefer a wrapped method with this name
+            if m is not None:
                 try:
-                    return get_interval()
+                    return m()
                 except AttributeError as err:
                     caught = err
             if name.endswith("_inference"):

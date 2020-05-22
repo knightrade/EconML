@@ -45,15 +45,21 @@ class BootstrapInference(Inference):
     n_jobs: int, optional (default -1)
         The maximum number of concurrently running jobs, as in joblib.Parallel.
 
+    bootstrap_type: 'percentile' or 'standard', default 'percentile'
+        Bootstrap method used to compute results.  'percentile' will result in using the empiracal CDF of
+        the replicated copmutations of the statistics.   'standard' will instead compute a pivot interval
+        assuming the replicates are normally distributed.
     """
 
-    def __init__(self, n_bootstrap_samples=100, n_jobs=-1):
+    def __init__(self, n_bootstrap_samples=100, n_jobs=-1, bootstrap_type='percentile'):
         self._n_bootstrap_samples = n_bootstrap_samples
         self._n_jobs = n_jobs
+        self._bootstrap_type = bootstrap_type
 
     def fit(self, estimator, *args, **kwargs):
         discrete_treatment = estimator._discrete_treatment if hasattr(estimator, '_discrete_treatment') else False
-        est = BootstrapEstimator(estimator, self._n_bootstrap_samples, self._n_jobs, compute_means=False)
+        est = BootstrapEstimator(estimator, self._n_bootstrap_samples, self._n_jobs, compute_means=False,
+                                 bootstrap_type=self._bootstrap_type)
         est.fit(*args, **kwargs)
         self._est = est
 
