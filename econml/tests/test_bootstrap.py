@@ -18,7 +18,7 @@ class TestBootstrap(unittest.TestCase):
     def test_with_sklearn(self):
         """Test that we can bootstrap sklearn estimators."""
         for n_jobs in [None, -1]:  # test parallelism
-            for kind in ['percentile', 'standard']:  # test both percentile and pivot intervals
+            for kind in ['percentile', 'pivot', 'normal']:  # test both percentile and pivot intervals
                 x = np.random.normal(size=(1000, 1))
                 y = x * 0.5 + np.random.normal(size=(1000, 1))
                 y = y.flatten()
