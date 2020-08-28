@@ -396,7 +396,7 @@ class WeightedLassoCV(WeightedModelMixin, LassoCV):
 
         super().__init__(
             eps=eps, n_alphas=n_alphas, alphas=alphas,
-            fit_intercept=fit_intercept, normalize=False,
+            fit_intercept=fit_intercept, normalize=normalize,
             precompute=precompute, max_iter=max_iter, tol=tol, copy_X=copy_X,
             cv=cv, verbose=verbose, n_jobs=n_jobs, positive=positive,
             random_state=random_state, selection=selection)
@@ -501,7 +501,7 @@ class WeightedMultiTaskLassoCV(WeightedModelMixin, MultiTaskLassoCV):
 
         super().__init__(
             eps=eps, n_alphas=n_alphas, alphas=alphas,
-            fit_intercept=fit_intercept, normalize=False,
+            fit_intercept=fit_intercept, normalize=normalize,
             max_iter=max_iter, tol=tol, copy_X=copy_X,
             cv=cv, verbose=verbose, n_jobs=n_jobs,
             random_state=random_state, selection=selection)
