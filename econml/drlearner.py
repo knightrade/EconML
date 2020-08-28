@@ -32,7 +32,7 @@ from warnings import warn
 
 from sklearn.base import clone
 from sklearn.linear_model import LogisticRegressionCV, LinearRegression, LassoCV
-from econml.utilities import inverse_onehot, check_high_dimensional, StatsModelsLinearRegression
+from econml.utilities import inverse_onehot, check_high_dimensional, StatsModelsLinearRegression, fit_with_groups
 from econml.sklearn_extensions.linear_model import WeightedLassoCVWrapper, DebiasedLasso
 from econml.sklearn_extensions.ensemble import SubsampledHonestForest
 from econml._ortho_learner import _OrthoLearner
@@ -57,7 +57,7 @@ class _ModelNuisance:
     def _combine(self, X, W):
         return np.hstack([arr for arr in [X, W] if arr is not None])
 
-    def fit(self, Y, T, X=None, W=None, *, sample_weight=None):
+    def fit(self, Y, T, X=None, W=None, *, sample_weight=None, groups=None):
         if Y.ndim != 1 and (Y.ndim != 2 or Y.shape[1] != 1):
             raise ValueError("The outcome matrix must be of shape ({0}, ) or ({0}, 1), "
                              "instead got {1}.".format(len(X), Y.shape))
@@ -68,11 +68,12 @@ class _ModelNuisance:
                                  "don't contain all treatments")
         XW = self._combine(X, W)
         filtered_kwargs = _filter_none_kwargs(sample_weight=sample_weight)
-        self._model_propensity.fit(XW, inverse_onehot(T), **filtered_kwargs)
-        self._model_regression.fit(np.hstack([XW, T]), Y, **filtered_kwargs)
+
+        fit_with_groups(self._model_propensity, XW, inverse_onehot(T), groups=groups, **filtered_kwargs)
+        fit_with_groups(self._model_regression, np.hstack([XW, T]), Y, groups=groups, **filtered_kwargs)
         return self
 
-    def score(self, Y, T, X=None, W=None, *, sample_weight=None):
+    def score(self, Y, T, X=None, W=None, *, sample_weight=None, groups=None):
         XW = self._combine(X, W)
         filtered_kwargs = _filter_none_kwargs(sample_weight=sample_weight)
 
@@ -87,7 +88,7 @@ class _ModelNuisance:
 
         return propensity_score, regression_score
 
-    def predict(self, Y, T, X=None, W=None, *, sample_weight=None):
+    def predict(self, Y, T, X=None, W=None, *, sample_weight=None, groups=None):
         XW = self._combine(X, W)
         propensities = np.maximum(self._model_propensity.predict_proba(XW), self._min_propensity)
         n = T.shape[0]
@@ -375,7 +376,7 @@ class DRLearner(_OrthoLearner):
                          categories=categories,
                          random_state=random_state)
 
-    def fit(self, Y, T, X=None, W=None, *, sample_weight=None, sample_var=None, inference=None):
+    def fit(self, Y, T, X=None, W=None, *, sample_weight=None, sample_var=None, groups=None, inference=None):
         """
         Estimate the counterfactual model from data, i.e. estimates function :math:`\\theta(\\cdot)`.
 
@@ -393,6 +394,10 @@ class DRLearner(_OrthoLearner):
             Weights for each samples
         sample_var: optional(n,) vector or None (Default=None)
             Sample variance for each sample
+        groups: (n,) vector, optional
+            All rows corresponding to the same group will be kept together during splitting.
+            If groups is not None, the n_splits argument passed to this class's initializer
+            must support a 'groups' argument to its split method.
         inference: string, :class:`.Inference` instance, or None
             Method for performing inference.  This estimator supports 'bootstrap'
             (or an instance of :class:`.BootstrapInference`).
@@ -402,7 +407,9 @@ class DRLearner(_OrthoLearner):
         self: DRLearner instance
         """
         # Replacing fit from _OrthoLearner, to enforce Z=None and improve the docstring
-        return super().fit(Y, T, X=X, W=W, sample_weight=sample_weight, sample_var=sample_var, inference=inference)
+        return super().fit(Y, T, X=X, W=W,
+                           sample_weight=sample_weight, sample_var=sample_var, groups=groups,
+                           inference=inference)
 
     def score(self, Y, T, X=None, W=None):
         """
@@ -687,7 +694,7 @@ class LinearDRLearner(StatsModelsCateEstimatorDiscreteMixin, DRLearner):
                          n_splits=n_splits,
                          random_state=random_state)
 
-    def fit(self, Y, T, X=None, W=None, *, sample_weight=None, sample_var=None, inference=None):
+    def fit(self, Y, T, X=None, W=None, *, sample_weight=None, sample_var=None, groups=None, inference=None):
         """
         Estimate the counterfactual model from data, i.e. estimates function :math:`\\theta(\\cdot)`.
 
@@ -705,6 +712,10 @@ class LinearDRLearner(StatsModelsCateEstimatorDiscreteMixin, DRLearner):
             Weights for each samples
         sample_var: optional(n,) vector or None (Default=None)
             Sample variance for each sample
+        groups: (n,) vector, optional
+            All rows corresponding to the same group will be kept together during splitting.
+            If groups is not None, the n_splits argument passed to this class's initializer
+            must support a 'groups' argument to its split method.
         inference: string, :class:`.Inference` instance, or None
             Method for performing inference.  This estimator supports ``'bootstrap'``
             (or an instance of :class:`.BootstrapInference`) and ``'statsmodels'``
@@ -715,7 +726,9 @@ class LinearDRLearner(StatsModelsCateEstimatorDiscreteMixin, DRLearner):
         self: DRLearner instance
         """
         # Replacing fit from DRLearner, to add statsmodels inference in docstring
-        return super().fit(Y, T, X=X, W=W, sample_weight=sample_weight, sample_var=sample_var, inference=inference)
+        return super().fit(Y, T, X=X, W=W,
+                           sample_weight=sample_weight, sample_var=sample_var, groups=groups,
+                           inference=inference)
 
     @property
     def multitask_model_cate(self):
@@ -896,7 +909,7 @@ class SparseLinearDRLearner(DebiasedLassoCateEstimatorDiscreteMixin, DRLearner):
                          n_splits=n_splits,
                          random_state=random_state)
 
-    def fit(self, Y, T, X=None, W=None, *, sample_weight=None, sample_var=None, inference=None):
+    def fit(self, Y, T, X=None, W=None, *, sample_weight=None, sample_var=None, groups=None, inference=None):
         """
         Estimate the counterfactual model from data, i.e. estimates function :math:`\\theta(\\cdot)`.
 
@@ -914,6 +927,10 @@ class SparseLinearDRLearner(DebiasedLassoCateEstimatorDiscreteMixin, DRLearner):
             Weights for each samples
         sample_var: optional(n,) vector or None (Default=None)
             Sample variance for each sample
+        groups: (n,) vector, optional
+            All rows corresponding to the same group will be kept together during splitting.
+            If groups is not None, the n_splits argument passed to this class's initializer
+            must support a 'groups' argument to its split method.
         inference: string, :class:`.Inference` instance, or None
             Method for performing inference.  This estimator supports ``'bootstrap'``
             (or an instance of :class:`.BootstrapInference`) and ``'debiasedlasso'``
@@ -932,7 +949,9 @@ class SparseLinearDRLearner(DebiasedLassoCateEstimatorDiscreteMixin, DRLearner):
                                discrete_treatment=self._discrete_treatment,
                                msg="The number of features in the final model (< 5) is too small for a sparse model. "
                                "We recommend using the LinearDRLearner for this low-dimensional setting.")
-        return super().fit(Y, T, X=X, W=W, sample_weight=sample_weight, sample_var=None, inference=inference)
+        return super().fit(Y, T, X=X, W=W,
+                           sample_weight=sample_weight, sample_var=None, groups=groups,
+                           inference=inference)
 
     @property
     def multitask_model_cate(self):
@@ -1150,7 +1169,7 @@ class ForestDRLearner(DRLearner):
         options.update(blb=GenericModelFinalInferenceDiscrete)
         return options
 
-    def fit(self, Y, T, X=None, W=None, sample_weight=None, sample_var=None, inference=None):
+    def fit(self, Y, T, X=None, W=None, *, sample_weight=None, sample_var=None, groups=None, inference=None):
         """
         Estimate the counterfactual model from data, i.e. estimates functions τ(·,·,·), ∂τ(·,·).
 
@@ -1169,6 +1188,10 @@ class ForestDRLearner(DRLearner):
         sample_var: optional (n, n_y) vector
             Variance of sample, in case it corresponds to summary of many samples. Currently
             not in use by this method (as inference method does not require sample variance info).
+        groups: (n,) vector, optional
+            All rows corresponding to the same group will be kept together during splitting.
+            If groups is not None, the n_splits argument passed to this class's initializer
+            must support a 'groups' argument to its split method.
         inference: string, `Inference` instance, or None
             Method for performing inference.  This estimator supports 'bootstrap'
             (or an instance of :class:`.BootstrapInference`) and 'blb'
@@ -1178,7 +1201,9 @@ class ForestDRLearner(DRLearner):
         -------
         self
         """
-        return super().fit(Y, T, X=X, W=W, sample_weight=sample_weight, sample_var=None, inference=inference)
+        return super().fit(Y, T, X=X, W=W,
+                           sample_weight=sample_weight, sample_var=None, groups=groups,
+                           inference=inference)
 
     def multitask_model_cate(self):
         # Replacing to remove docstring
